@@ -598,7 +598,7 @@ export default function LexiVault() {
             <Button
               variant="ghost"
               className="hidden sm:flex"
-              onClick={() => window.open('https://github.com', '_blank')}
+              onClick={() => window.open('https://github.com/peterxcli/lexivault', '_blank')}
             >
               <Github size={18} />
             </Button>
