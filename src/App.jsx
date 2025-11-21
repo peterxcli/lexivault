@@ -332,10 +332,21 @@ export default function LexiVault() {
   // Toast State
   const [toasts, setToasts] = useState([]);
 
+  // Splash Screen State
+  const [showSplash, setShowSplash] = useState(true);
+
   // Audio Ref
   const audioRef = useRef(null);
 
   // -- Effects --
+
+  // Splash screen effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2000); // Show for 2 seconds
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const savedConfig = localStorage.getItem('lexivault_config');
@@ -580,6 +591,24 @@ export default function LexiVault() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-sans selection:bg-indigo-100 selection:text-indigo-900">
+
+      {/* Splash Screen */}
+      {showSplash && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-800 animate-in fade-in">
+          <div className="text-center animate-in zoom-in-95 duration-500">
+            <div className="w-20 h-20 bg-white/10 backdrop-blur-sm rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl border border-white/20">
+              <BookOpen size={40} className="text-white" strokeWidth={2.5} />
+            </div>
+            <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">LexiVault</h1>
+            <p className="text-xl text-indigo-100 font-medium">Your words. Your vault. Your mastery.</p>
+            <div className="mt-8 flex items-center justify-center gap-2">
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-pulse delay-75" style={{ animationDelay: '0.15s' }}></div>
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-pulse delay-150" style={{ animationDelay: '0.3s' }}></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} removeToast={removeToast} />
