@@ -204,24 +204,7 @@ const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete, playAudi
     onClose();
   };
 
-  if (queue.length === 0) return <div className="p-8 text-center">Loading cards...</div>;
-
-  if (sessionComplete) {
-    return (
-      <div className="text-center py-12 animate-in zoom-in-95">
-        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CheckCircle size={40} />
-        </div>
-        <h3 className="text-2xl font-bold text-slate-800 mb-2">Session Complete!</h3>
-        <p className="text-slate-500 mb-8">Great job reviewing your vocabulary.</p>
-        <div className="flex justify-center gap-4">
-          <Button variant="primary" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    );
-  }
-
-  const currentCard = queue[currentIndex];
+  const currentCard = queue[currentIndex] || null;
 
   useEffect(() => {
     if (!currentCard?.word) return;
@@ -264,6 +247,23 @@ const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete, playAudi
       isMounted = false;
     };
   }, [currentCard]);
+
+  if (queue.length === 0) return <div className="p-8 text-center">Loading cards...</div>;
+
+  if (sessionComplete) {
+    return (
+      <div className="text-center py-12 animate-in zoom-in-95">
+        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+          <CheckCircle size={40} />
+        </div>
+        <h3 className="text-2xl font-bold text-slate-800 mb-2">Session Complete!</h3>
+        <p className="text-slate-500 mb-8">Great job reviewing your vocabulary.</p>
+        <div className="flex justify-center gap-4">
+          <Button variant="primary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center min-h-[450px]">
