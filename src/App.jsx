@@ -394,6 +394,10 @@ export default function LexiVault() {
 
   // Audio Ref
   const audioRef = useRef(null);
+  const [searchAudioUrl, setSearchAudioUrl] = useState(null);
+  const [searchAudioLoading, setSearchAudioLoading] = useState(false);
+  const [searchAudioError, setSearchAudioError] = useState(null);
+  const searchAudioCache = useRef({});
 
   // -- Effects --
 
@@ -420,6 +424,64 @@ export default function LexiVault() {
       setShowSettings(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!wordData?.word) {
+      setSearchAudioUrl(null);
+      setSearchAudioError(null);
+      setSearchAudioLoading(false);
+      return;
+    }
+
+    const normalizedWord = wordData.word.toLowerCase();
+    const inlineAudio = wordData.phonetics?.find(p => p.audio)?.audio || null;
+
+    if (inlineAudio) {
+      searchAudioCache.current[normalizedWord] = inlineAudio;
+      setSearchAudioUrl(inlineAudio);
+      setSearchAudioError(null);
+      setSearchAudioLoading(false);
+      return;
+    }
+
+    if (searchAudioCache.current[normalizedWord] !== undefined) {
+      const cached = searchAudioCache.current[normalizedWord];
+      setSearchAudioUrl(cached);
+      setSearchAudioError(cached ? null : 'Audio unavailable');
+      setSearchAudioLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setSearchAudioLoading(true);
+    setSearchAudioError(null);
+
+    const fetchAudio = async () => {
+      try {
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${normalizedWord}`);
+        if (!res.ok) throw new Error('Audio unavailable');
+        const data = await res.json();
+        const fetchedAudio = data[0]?.phonetics?.find(p => p.audio)?.audio || null;
+        if (!isMounted) return;
+        searchAudioCache.current[normalizedWord] = fetchedAudio;
+        setSearchAudioUrl(fetchedAudio);
+        setSearchAudioError(fetchedAudio ? null : 'Audio unavailable');
+      } catch (err) {
+        if (!isMounted) return;
+        searchAudioCache.current[normalizedWord] = null;
+        setSearchAudioUrl(null);
+        setSearchAudioError('Audio unavailable');
+      } finally {
+        if (isMounted) setSearchAudioLoading(false);
+      }
+    };
+
+    fetchAudio();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [wordData]);
 
   // -- Helper Functions --
 
@@ -799,17 +861,16 @@ export default function LexiVault() {
                       <span className="text-xl text-indigo-500 font-serif italic">{wordData.phonetic}</span>
                     </div>
                     {/* Audio Button */}
-                    {wordData.phonetics.find(p => p.audio) && (
-                      <button
-                        onClick={() => playAudio(wordData.phonetics.find(p => p.audio).audio)}
-                        className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors"
-                      >
-                        <div className="p-1.5 rounded-full bg-slate-100 group-hover:bg-indigo-100 text-slate-600 group-hover:text-indigo-600">
-                          <Volume2 size={16} />
-                        </div>
-                        Listen
-                      </button>
-                    )}
+                    <button
+                      onClick={() => searchAudioUrl && playAudio(searchAudioUrl)}
+                      disabled={!searchAudioUrl}
+                      className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors disabled:text-slate-300 disabled:hover:text-slate-300"
+                    >
+                      <div className="p-1.5 rounded-full bg-slate-100 text-slate-600">
+                        <Volume2 size={16} />
+                      </div>
+                      {searchAudioLoading ? 'Loading audio...' : searchAudioError && !searchAudioUrl ? 'Audio unavailable' : 'Listen'}
+                    </button>
                   </div>
 
                   <Button
