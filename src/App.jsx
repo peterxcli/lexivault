@@ -133,12 +133,16 @@ const ToastContainer = ({ toasts, removeToast }) => (
 
 // --- Flashcard Component ---
 
-const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete }) => {
+const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete, playAudio }) => {
   const [queue, setQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [currentAudio, setCurrentAudio] = useState(null);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState(null);
+  const audioCache = useRef({});
 
   // Initialize Session with Weighted Shuffle
   useEffect(() => {
@@ -219,6 +223,48 @@ const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete }) => {
 
   const currentCard = queue[currentIndex];
 
+  useEffect(() => {
+    if (!currentCard?.word) return;
+
+    const normalizedWord = currentCard.word.toLowerCase();
+    if (audioCache.current[normalizedWord] !== undefined) {
+      setAudioLoading(false);
+      setCurrentAudio(audioCache.current[normalizedWord]);
+      setAudioError(audioCache.current[normalizedWord] ? null : 'Audio unavailable');
+      return;
+    }
+
+    let isMounted = true;
+    setAudioLoading(true);
+    setAudioError(null);
+
+    const fetchAudio = async () => {
+      try {
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${normalizedWord}`);
+        if (!res.ok) throw new Error('No audio');
+        const data = await res.json();
+        const audioUrl = data[0]?.phonetics?.find(p => p.audio)?.audio || null;
+        if (!isMounted) return;
+        audioCache.current[normalizedWord] = audioUrl;
+        setCurrentAudio(audioUrl);
+        setAudioError(audioUrl ? null : 'Audio unavailable');
+      } catch (err) {
+        if (!isMounted) return;
+        audioCache.current[normalizedWord] = null;
+        setCurrentAudio(null);
+        setAudioError('Audio unavailable');
+      } finally {
+        if (isMounted) setAudioLoading(false);
+      }
+    };
+
+    fetchAudio();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentCard]);
+
   return (
     <div className="flex flex-col items-center min-h-[450px]">
       {/* Progress Bar */}
@@ -245,6 +291,17 @@ const FlashcardSession = ({ words, onClose, onUpdateProgress, onDelete }) => {
           <div className="absolute inset-0 backface-hidden bg-white border-2 border-indigo-100 rounded-3xl shadow-xl shadow-indigo-100 flex flex-col items-center justify-center p-8 text-center hover:border-indigo-300 transition-colors">
              <span className="text-xs font-bold tracking-widest text-indigo-400 uppercase mb-4">Word</span>
              <h2 className="text-4xl font-bold text-slate-800 mb-4">{currentCard.word}</h2>
+             <button
+               onClick={(e) => {
+                 e.stopPropagation();
+                 if (currentAudio && playAudio) playAudio(currentAudio);
+               }}
+               disabled={!currentAudio || !playAudio}
+               className="flex items-center gap-2 text-sm font-medium text-indigo-600 disabled:text-slate-300 mb-6"
+             >
+               <Volume2 size={16} />
+              {audioLoading ? 'Loading audio...' : audioError && !currentAudio ? 'Audio unavailable' : 'Play audio'}
+             </button>
 
              {/* Mastery Dots */}
              <div className="flex gap-1 mb-6">
@@ -378,6 +435,8 @@ export default function LexiVault() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  const normalizeWord = (word) => (word || '').trim().toLowerCase();
+
   // -- Dictionary Logic --
 
   const searchWord = async (wordToSearch) => {
@@ -412,6 +471,59 @@ export default function LexiVault() {
 
   // -- GitHub Logic --
 
+  const parseIssueRemembered = (body = '') => {
+    const match = body.match(/<!-- lexivault: ({.*}) -->/);
+    if (match && match[1]) {
+      try {
+        const meta = JSON.parse(match[1]);
+        return meta.remembered || 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+    return 0;
+  };
+
+  const mapIssueToWord = (issue) => ({
+    id: issue.number,
+    word: issue.title,
+    summary: issue.body,
+    created_at: issue.created_at,
+    url: issue.html_url,
+    remembered: parseIssueRemembered(issue.body)
+  });
+
+  const fetchIssuesFromGithub = async (config = ghConfig) => {
+    if (!config.token) return [];
+
+    const perPage = 100;
+    let page = 1;
+    let allIssues = [];
+
+    while (true) {
+      const res = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/issues?labels=lexivault&state=open&per_page=${perPage}&page=${page}`, {
+        headers: {
+          'Authorization': `token ${config.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+
+      if (res.status === 404) throw new Error("Repo not found");
+      if (res.status === 401) throw new Error("Invalid Token");
+      if (!res.ok) throw new Error("Failed to reach GitHub");
+
+      const issues = await res.json();
+      if (!Array.isArray(issues) || issues.length === 0) break;
+
+      allIssues = allIssues.concat(issues);
+
+      if (issues.length < perPage) break;
+      page += 1;
+    }
+
+    return allIssues.map(mapIssueToWord);
+  };
+
   const saveConfig = () => {
     localStorage.setItem('lexivault_config', JSON.stringify(ghConfig));
     if (ghConfig.token && ghConfig.owner && ghConfig.repo) {
@@ -438,42 +550,13 @@ export default function LexiVault() {
     if (!config.token) return;
     setLoadingSaved(true);
     try {
-      const res = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/issues?labels=lexivault&state=open&per_page=100`, {
-        headers: {
-          'Authorization': `token ${config.token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-
-      if (res.status === 404) throw new Error("Repo not found");
-      if (res.status === 401) throw new Error("Invalid Token");
-
-      const issues = await res.json();
-      if (Array.isArray(issues)) {
-        setSavedWords(issues.map(issue => {
-            // Parse progress from hidden comment
-            let remembered = 0;
-            const match = issue.body.match(/<!-- lexivault: ({.*}) -->/);
-            if (match && match[1]) {
-                try {
-                    const meta = JSON.parse(match[1]);
-                    remembered = meta.remembered || 0;
-                } catch (e) {}
-            }
-
-            return {
-                id: issue.number,
-                word: issue.title,
-                summary: issue.body,
-                created_at: issue.created_at,
-                url: issue.html_url,
-                remembered: remembered
-            };
-        }));
-      }
+      const latestIssues = await fetchIssuesFromGithub(config);
+      setSavedWords(latestIssues);
+      return latestIssues;
     } catch (e) {
       console.error("GitHub Fetch Error:", e);
       addToast('Failed to load vault. Check your config.', 'error');
+      return null;
     } finally {
       setLoadingSaved(false);
     }
@@ -549,8 +632,29 @@ export default function LexiVault() {
   const saveToVault = async () => {
     if (!wordData || !isConfigured) return;
 
-    if (savedWords.some(w => w.word.toLowerCase() === wordData.word.toLowerCase())) {
+    const normalizedWord = normalizeWord(wordData.word);
+
+    if (savedWords.some(w => normalizeWord(w.word) === normalizedWord)) {
       addToast("Word is already in your Vault!", 'info');
+      return;
+    }
+
+    // Pull the latest open issues from GitHub to avoid duplicates created elsewhere
+    let latestWords = savedWords;
+    try {
+      const remoteWords = await fetchIssuesFromGithub();
+      if (remoteWords) {
+        setSavedWords(remoteWords);
+        latestWords = remoteWords;
+      }
+    } catch (err) {
+      console.error("Remote duplicate check failed:", err);
+      addToast("Could not verify duplicates on GitHub. Please try again.", 'error');
+      return;
+    }
+
+    if (latestWords.some(w => normalizeWord(w.word) === normalizedWord)) {
+      addToast(`"${wordData.word}" is already an open issue in your vault.`, 'info');
       return;
     }
 
@@ -971,6 +1075,7 @@ export default function LexiVault() {
             onClose={() => setIsReviewing(false)}
             onUpdateProgress={updateWordProgress}
             onDelete={deleteWord}
+            playAudio={playAudio}
           />
         </Modal>
       )}
